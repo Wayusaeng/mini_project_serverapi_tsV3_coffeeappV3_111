@@ -11,6 +11,19 @@ interface UserInput {
   password: string
 }
 
+// feature.md B2 (ปิด G5) — Token ต้องมีวันหมดอายุ
+//
+// เดิม jwt.sign() ไม่ใส่ expiresIn เลย token ที่หลุดออกไปจึงใช้ได้ตลอดกาล ไม่มีทาง
+// ยกเลิกได้นอกจากเปลี่ยน JWT_SECRET ทั้งระบบ (ซึ่งเตะทุกคนออกพร้อมกัน)
+//
+// ตั้งค่าผ่าน .env ได้เพื่อให้สาธิตในห้องเรียนง่าย — ตั้ง JWT_EXPIRES_IN=30s แล้ว
+// รอครึ่งนาที จะเห็นแอปเด้งกลับหน้า Login เองโดยไม่ต้องรอหนึ่งชั่วโมง
+function signToken(payload: { id: number; email: string; role: string }): string {
+  return jwt.sign(payload, process.env.JWT_SECRET || "", {
+    expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+  })
+}
+
 // Register function
 async function register(req: Request, res: Response): Promise<void> {
   const { firstname, lastname, email, password }: UserInput = req.body
@@ -22,17 +35,19 @@ async function register(req: Request, res: Response): Promise<void> {
       [email],
       function (err, results: any, fields) {
         if (err) {
-          res.json({ status: "error", message: err })
+          res.status(500).json({ status: "error", message: err })
           return
         } else {
           if (results.length > 0) {
-            res.json({ status: "error", message: "Email already exists" })
+            // feature.md B3 (ปิด G6): 409 Conflict คือรหัสที่ตรงความหมายที่สุด —
+            // request ถูกต้องทุกอย่าง แต่ชนกับข้อมูลที่มีอยู่แล้วในระบบ
+            res.status(409).json({ status: "error", message: "Email already exists" })
             return
           } else {
             // Hash the password
             bcrypt.hash(password, 10, function (err, hash) {
               if (err) {
-                res.json({ status: "error", message: err })
+                res.status(500).json({ status: "error", message: err })
                 return
               } else {
                 // Store the user in the database
@@ -46,16 +61,23 @@ async function register(req: Request, res: Response): Promise<void> {
                   values,
                   function (err, results: any, fields) {
                     if (err) {
-                      res.json({ status: "error", message: err })
+                      res.status(500).json({ status: "error", message: err })
                       return
                     } else {
-                      // Generate JWT token for the registered user
-                      const token = jwt.sign(
-                        { email },
-                        process.env.JWT_SECRET || ""
-                      )
+                      // ผู้สมัครใหม่ได้ role 'customer' เสมอ ตรงกับ defaultTo ของ
+                      // migration 20260917120000_add_role_to_users — สมัครเองแล้ว
+                      // เป็น admin ไม่ได้ ต้องให้คนที่เป็น admin อยู่แล้วตั้งให้ใน DB
+                      const role = "customer"
 
-                      res.json({
+                      // Generate JWT token for the registered user
+                      const token = signToken({
+                        id: results.insertId,
+                        email,
+                        role,
+                      })
+
+                      // 201 Created — สร้างทรัพยากรใหม่สำเร็จ ไม่ใช่ 200 OK เฉย ๆ
+                      res.status(201).json({
                         status: "ok",
                         message: "User registered successfully",
                         token: token,
@@ -64,6 +86,7 @@ async function register(req: Request, res: Response): Promise<void> {
                           firstname: firstname,
                           lastname: lastname,
                           email: email,
+                          role: role,
                         },
                       })
                     }
@@ -91,7 +114,7 @@ async function login(req: Request, res: Response): Promise<void> {
       [email],
       function (err, results: any, fields) {
         if (err) {
-          res.json({ status: "error", message: err })
+          res.status(500).json({ status: "error", message: err })
           return
         } else {
           if (results.length > 0) {
@@ -101,15 +124,23 @@ async function login(req: Request, res: Response): Promise<void> {
               results[0].password,
               function (err, result) {
                 if (err) {
-                  res.json({ status: "error", message: err })
+                  res.status(500).json({ status: "error", message: err })
                   return
                 } else {
                   if (result) {
+                    // user ที่สมัครไว้ก่อนมี column role จะได้ 'customer' จาก
+                    // defaultTo ของ migration อยู่แล้ว ?? ไว้กันกรณี DB ยังไม่ migrate
+                    const role = results[0].role ?? "customer"
+
                     // Generate JWT token for the registered user
-                    const token = jwt.sign(
-                      { email },
-                      process.env.JWT_SECRET || ""
-                    )
+                    //
+                    // feature.md A2/B1: payload ต้องมี id เพราะ Order API ต้องรู้ว่า
+                    // order เป็นของใคร และต้องมี role เพราะ requireAdmin ต้องตัดสินสิทธิ์
+                    // ได้โดยไม่ต้อง query ตาราง users ซ้ำทุก request
+                    //
+                    // ⚠️ Breaking change: token ที่ออกก่อนหน้านี้มีแค่ { email } จึงใช้กับ
+                    // endpoint ใหม่ไม่ได้ — ผู้ใช้เดิมทุกคนต้อง Login ใหม่หนึ่งครั้ง
+                    const token = signToken({ id: results[0].id, email, role })
 
                     res.json({
                       status: "ok",
@@ -120,10 +151,13 @@ async function login(req: Request, res: Response): Promise<void> {
                         firstname: results[0].firstname,
                         lastname: results[0].lastname,
                         email: results[0].email,
+                        role: role,
                       },
                     })
                   } else {
-                    res.json({
+                    // 401 Unauthorized — ยังพิสูจน์ตัวตนไม่ผ่าน (ต่างจาก 403 ที่
+                    // พิสูจน์แล้วแต่ไม่มีสิทธิ์ ดู middleware/requireAdmin.ts)
+                    res.status(401).json({
                       status: "error",
                       message: "Email and password does not match",
                     })
@@ -133,7 +167,7 @@ async function login(req: Request, res: Response): Promise<void> {
               }
             )
           } else {
-            res.json({ status: "error", message: "Email does not exists" })
+            res.status(401).json({ status: "error", message: "Email does not exists" })
             return
           }
         }

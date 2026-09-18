@@ -1,32 +1,8 @@
-import express, { Express } from 'express'
-import bodyParser from 'body-parser'
-import cors from 'cors'
-import dotenv from 'dotenv'
+import app from './app'
 
-// Initialize dotenv
-dotenv.config()
-
-// Initialize App
-const app: Express = express()
-
-// Parse incoming JSON requests
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded({ extended: false }))
-
-// Use Cors
-app.use(cors())
-
-// Use Static Files
-app.use('/uploads', express.static('uploads'))
-app.use('/uploads/images', express.static('uploads/images'))
-
-// Routes
-import authRoutes from './routes/authRoutes'
-import productRoutes from './routes/productRoutes'
-
-// Use Routes
-app.use('/api/auth', authRoutes)
-app.use('/api/products', productRoutes)
+// feature.md C5: ไฟล์นี้เหลือหน้าที่เดียวคือเปิดพอร์ตฟัง
+// ตัวแอปทั้งหมด (middleware + routes) ย้ายไปอยู่ใน app.ts เพื่อให้ test import ได้
+// โดยไม่ต้องยึดพอร์ต
 
 // Listen Port
 const port: string | number = process.env.PORT || 3000
