@@ -63,20 +63,18 @@ function getProductById(req: Request, res: Response) {
   }
 }
 
-//----------------------------------------
+///----------------------------------------
 // Create product
 //----------------------------------------
 function createProduct(req: RequestWithUser, res: Response) {
   upload(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
-      console.log(`error: ${JSON.stringify(err)}`)
+      console.log("error:", err)
       return res.status(500).json({ message: err })
     } else if (err) {
-      console.log(`error: ${JSON.stringify(err)}`)
+      console.log("error:", err)
       return res.status(500).json({ message: err })
     } else {
-      // console.log(`file: ${JSON.stringify(req.file)}`)
-      // console.log(`body: ${JSON.stringify(req.body)}`)
       try {
         const {
           name,
@@ -88,16 +86,16 @@ function createProduct(req: RequestWithUser, res: Response) {
           status_id,
         } = req.body
 
-        // feature.md B1: เจ้าของสินค้ามาจาก token ไม่ใช่จาก body ที่ client ส่งมา
-        //
-        // เดิม client ส่ง user_id มาเองใน multipart แปลว่าใครก็ตั้งตัวเองเป็นเจ้าของ
-        // สินค้าของคนอื่นได้ด้วยการแก้ค่าที่ส่ง — ตอนนี้ requireAdmin ทำให้แน่ใจแล้วว่า
-        // req.user มีอยู่จริงและผ่านการตรวจลายเซ็นมาแล้ว จึงเชื่อค่านี้ได้
+        // รับค่า rating และ sold_count (ถ้าไม่ได้ส่งมาให้ใช้ค่าเริ่มต้น)
+        const rating = req.body.rating ?? 4.8
+        const sold_count = req.body.sold_count ?? req.body.soldCount ?? 0
+
         const user_id = (req.user as JwtPayload).id
         const image = req.file ? req.file.filename : null
         console.log(req.file)
+
         connection.execute(
-          "INSERT INTO products (name, description, barcode, image, stock, price, category_id, user_id, status_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO products (name, description, barcode, image, stock, price, rating, sold_count, category_id, user_id, status_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [
             name,
             description,
@@ -105,6 +103,8 @@ function createProduct(req: RequestWithUser, res: Response) {
             image,
             stock,
             price,
+            rating,
+            sold_count,
             category_id,
             user_id,
             status_id,
@@ -125,6 +125,8 @@ function createProduct(req: RequestWithUser, res: Response) {
                   image: image,
                   stock: stock,
                   price: price,
+                  rating: rating,
+                  sold_count: sold_count,
                   category_id: category_id,
                   user_id: user_id,
                   status_id: status_id,
@@ -156,10 +158,6 @@ function updateProduct(req: Request, res: Response) {
       console.log(`file: ${JSON.stringify(req.file)}`)
       console.log(`body: ${JSON.stringify(req.body)}`)
       try {
-        // ดึงข้อมูลสินค้าปัจจุบันไว้ก่อน เพื่อใช้เป็นค่า fallback สำหรับฟิลด์
-        // ที่ client ไม่ได้ส่งมาใน request (เดิมถ้าไม่ส่ง user_id มา ค่าจะเป็น
-        // undefined แล้ว connection.execute() throw ทันทีเพราะ MySQL bind
-        // parameter ห้ามเป็น undefined ทำให้ตอบ 500 กลับไปเสมอ)
         connection.execute(
           "SELECT * FROM products WHERE id = ?",
           [req.params.productId],
@@ -179,14 +177,15 @@ function updateProduct(req: Request, res: Response) {
             const barcode = req.body.barcode ?? current.barcode
             const stock = req.body.stock ?? current.stock
             const price = req.body.price ?? current.price
+            const rating = req.body.rating ?? current.rating
+            const sold_count = req.body.sold_count ?? req.body.soldCount ?? current.sold_count
             const category_id = req.body.category_id ?? current.category_id
-            // ไม่รับ user_id จาก body เช่นกัน — แก้ไขสินค้าแล้วเจ้าของต้องไม่เปลี่ยนมือ
             const user_id = current.user_id
             const status_id = req.body.status_id ?? current.status_id
             const image = req.file ? req.file.filename : current.image
 
             const sql =
-              "UPDATE products SET name = ?, description = ?, barcode = ?, image = ?, stock = ?, price = ?, category_id = ?, user_id = ?, status_id = ? WHERE id = ?"
+              "UPDATE products SET name = ?, description = ?, barcode = ?, image = ?, stock = ?, price = ?, rating = ?, sold_count = ?, category_id = ?, user_id = ?, status_id = ? WHERE id = ?"
             const params = [
               name,
               description,
@@ -194,6 +193,8 @@ function updateProduct(req: Request, res: Response) {
               image,
               stock,
               price,
+              rating,
+              sold_count,
               category_id,
               user_id,
               status_id,
@@ -216,6 +217,8 @@ function updateProduct(req: Request, res: Response) {
                     image: image,
                     stock: stock,
                     price: price,
+                    rating: rating,
+                    sold_count: sold_count,
                     category_id: category_id,
                     user_id: user_id,
                     status_id: status_id,
